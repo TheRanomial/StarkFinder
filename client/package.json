@@ -19,7 +19,7 @@
     "@brian-ai/sdk": "^0.3.6",
     "@hookform/resolvers": "^3.10.0",
     "@langchain/anthropic": "^0.3.11",
-    "@langchain/core": "^0.3.33",
+    "@langchain/core": "^0.3.31",
     "@langchain/langgraph": "^0.2.41",
     "@langchain/openai": "^0.3.17",
     "@prisma/client": "^6.2.1",

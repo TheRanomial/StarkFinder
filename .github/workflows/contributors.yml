@@ -7,6 +7,9 @@ on:
   schedule:
     - cron: "0 0 * * *"
 
+permissions:
+  contents: write
+
 jobs:
   update-contributors:
     runs-on: ubuntu-latest
@@ -28,5 +31,3 @@ jobs:
           git add README.md
           git commit -m "Update contributors"
           git push
-        env:
-          TOKEN_GH: ${{ secrets.TOKEN_GH }}

@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from 'react';
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Play, Edit2, Shield, CheckCircle, XCircle  } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion"
+
 
 interface DeploymentResponse {
   success: boolean;
@@ -124,16 +126,28 @@ const ContractCode: React.FC<ContractCodeProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <div className="text-black text-2xl font-bold">Contract Code</div>
+    <motion.div
+    initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+     className="flex flex-col gap-8 p-8 bg-navy-900 rounded-2xl shadow-2xl border border-navy-700 relative min-h-[500px] max-h-[80vh] overflow-y-auto"
+      style={{
+        background: "linear-gradient(to bottom right, #0a192f, #112240, #1a365f)",
+        boxShadow: "0 0 20px rgba(100, 255, 218, 0.1)",
+      }}
+    >
+      <div className="flex flex-col gap-8 pb-24">
+        <motion.div className="text-4xl font-bold text-cyan-300"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}>Contract Code</motion.div>
         <div
           ref={containerRef}
-          className={`text-black mt-1 overflow-y-auto pl-2 border-4 border-black rounded-xl min-h-[10vh] max-h-[40vh] ${
+          className={`text-black relative overflow-hidden rounded-xl bg-navy-800 border border-navy-600" ${
             editable ? "bg-yellow-200" : "bg-yellow-100"
           }`}
         >
-          <pre>
+          <pre className="p-6 overflow-y-auto max-h-[60vh]">
             <code
               contentEditable={editable}
               spellCheck="false"
@@ -154,35 +168,50 @@ const ContractCode: React.FC<ContractCodeProps> = ({
 
         <div className="flex gap-4 mt-2">
           <button 
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-lg flex items-center gap-2 transform hover:scale-105 focus:outline-none ocus:ring-2 focus:ring-cyan-400 focus:ring-opacity-50 font-bold ${
               isLoading || editable 
-                ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-blue-500 hover:bg-blue-600 text-white'
+                ? 'bg-gray-500 cursor-not-allowed' 
+                : 'bg-cyan-500 hover:bg-cyan-600 text-black'
             }`}
+            style={{
+              boxShadow: "0 0 15px rgba(100, 255, 218, 0.3)",
+            }}
             onClick={compileContractHandler}
             disabled={editable || isLoading}
           >
+            <span className="flex items-center justify-center gap-2">
+            <Play className="w-5 h-5" />
             {isLoading ? "Deploying..." : "Deploy"}
+            </span>
           </button>
           <button 
-            className="px-4 py-2 rounded-lg bg-gray-500 hover:bg-gray-600 text-white"
+            className="px-4 py-2 rounded-lg bg-gray-500 hover:bg-gray-600 text-white transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-opacity-50"
             onClick={() => setEditable(!editable)}
             disabled={isLoading}
           >
+            <span className="flex items-center justify-center gap-2 ">
+            <Edit2 className="w-5 h-5" />
             {editable ? "Save" : "Edit"}
+            </span>
           </button>
           <button 
             className={`px-4 py-2 rounded-lg ${
               editable || isLoading 
-                ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-green-500 hover:bg-green-600 text-white'
+                ? 'bg-gray-500 cursor-not-allowed' 
+                : 'bg-yellow-500 hover:bg-yellow-600 text-black font-bold transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50' 
             }`}
+            style={{
+              boxShadow: "0 0 15px rgba(255, 255, 0, 0.3)",
+            }}
             onClick={auditCodeHandler}
             disabled={editable || isLoading}
           >
+            <span className="flex items-center justify-center gap-2">
+            <Shield className="w-5 h-5" />
             Audit
+            </span>
           </button>
-        </div>
+          </div>
       </div>
 
       {/* Deployment Logs */}
@@ -203,13 +232,22 @@ const ContractCode: React.FC<ContractCodeProps> = ({
       )}
 
       {/* Deployment Result */}
+
+      <AnimatePresence>
       {result && (
-        <div className={`mt-4 p-4 rounded-lg border ${
-          result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-        }`}>
+        <motion.div
+        initial={{ opacity: 0, y: 100 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 100 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className={`sticky bottom-0 left-0 right-0 p-6 border mt-4 ${
+          result.success ? "bg-green-900/95 border-green-700" : "bg-red-900/95 border-red-700"
+        }`}
+      >
           {result.success ? (
             <div className="flex flex-col gap-2">
-              <div className="font-semibold text-green-700">
+              <div className="font-semibold text-white">
+              <CheckCircle className="w-6 h-6" />
                 Deployment Successful!
               </div>
               <div className="flex items-center gap-2">
@@ -234,17 +272,20 @@ const ContractCode: React.FC<ContractCodeProps> = ({
               </div>
             </div>
           ) : (
-            <div className="text-red-700">
-              <div className="font-semibold">Deployment Failed</div>
-              <div className="text-sm mt-1">{result.error}</div>
+            <div className="">
+              <div className="font-semibold text-xl flex items-center gap-2">
+              <XCircle className="w-6 h-6" />
+                Deployment Failed</div>
+              <div className="text-sm mt-2">{result.error}</div>
               {result.details && (
-                <div className="text-sm mt-1 text-red-600">{result.details}</div>
+                <div className="text-sm mt-2 text-white">{result.details}</div>
               )}
             </div>
           )}
-        </div>
+        </motion.div>
       )}
-    </div>
+      </AnimatePresence>
+    </motion.div>
   );
 };
 
