@@ -59,6 +59,7 @@ Transaction Analysis Guidelines:
 2. Extract precise transaction parameters
 3. Include transaction details in the 'transaction' field when applicable
 4. Use empty strings for parameters that cannot be determined
+5. Akways convert the given amount to ETh or STRK as input might be in wei
 
 Examples:
 1. "Send 0.1 ETH to 0x123..." 

@@ -4,6 +4,7 @@
 import { NextResponse, NextRequest } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
 import { transactionProcessor } from "@/lib/transaction";
+
 import type {
   BrianResponse,
   BrianTransactionData,
@@ -65,6 +66,9 @@ async function getTransactionIntentFromOpenAI(
       data: {} as BrianTransactionData,
     };
 
+    const value = 10 ** 18;
+    const weiAmount = BigInt(intentData.extractedParams.amount * value);
+
     switch (intentData.action) {
       case "swap":
       case "transfer":
@@ -83,7 +87,7 @@ async function getTransactionIntentFromOpenAI(
                     calldata: [
                       intentData.extractedParams.destinationAddress ||
                         intentData.extractedParams.address,
-                      intentData.extractedParams.amount,
+                      weiAmount.toString(),
                       "0",
                     ],
                   },
