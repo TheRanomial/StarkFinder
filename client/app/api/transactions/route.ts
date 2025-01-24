@@ -4,7 +4,6 @@
 import { NextResponse, NextRequest } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
 import { transactionProcessor } from "@/lib/transaction";
-
 import type {
   BrianResponse,
   BrianTransactionData,
