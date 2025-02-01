@@ -13,6 +13,7 @@ export interface UserPreferences {
   investmentHorizon: "short" | "medium" | "long";
   minTVL?: number;
   targetAPY?: number;
+  timestamp?: string;
 }
 
 interface Pool {
@@ -31,17 +32,26 @@ export class InvestmentAdvisor {
   private readonly chatModel: ChatOpenAI;
   private pools: Pool[] = [];
   private readonly userPreferencesDir: string;
+  private readonly chatHistoryDir: string;
 
   constructor() {
     this.chatModel = agent;
     this.userPreferencesDir = path.join(__dirname, "data", "user_preferences");
+    this.chatHistoryDir = path.join(__dirname, "data", "chat_history");
     this.loadPoolData();
     this.ensureUserPreferencesDirExists();
+    this.ensureChatHistoryDirExists();
   }
 
   private ensureUserPreferencesDirExists(): void {
     if (!existsSync(this.userPreferencesDir)) {
       mkdirSync(this.userPreferencesDir, { recursive: true });
+    }
+  }
+
+  private ensureChatHistoryDirExists(): void {
+    if (!existsSync(this.chatHistoryDir)) {
+      mkdirSync(this.chatHistoryDir, { recursive: true });
     }
   }
 
@@ -109,16 +119,45 @@ export class InvestmentAdvisor {
     return JSON.parse(cleanJson);
   }
 
+  private getUserPreferencesWithHistory(userId: string): UserPreferences {
+    const explicitPreferences = this.getUserPreferences(userId);
+    const chatHistory = this.getChatHistory(userId);
+
+    const sortedHistory = chatHistory
+      .filter((entry) => entry.preferences)
+      .sort((a, b) => {
+        const dateA = new Date(a.timestamp);
+        const dateB = new Date(b.timestamp);
+        return dateB.getTime() - dateA.getTime();
+      });
+
+    const mostRecentPreferences = sortedHistory[0]?.preferences;
+
+    const defaultPreferences: UserPreferences = {
+      riskTolerance: "medium",
+      preferredAssets: [],
+      preferredChains: [],
+      investmentHorizon: "medium",
+      timestamp: new Date().toISOString(),
+    };
+
+    return {
+      ...defaultPreferences,
+      ...explicitPreferences,
+      ...mostRecentPreferences,
+    };
+  }
+
   async processMessage(userId: string, message: string): Promise<string> {
     try {
-      const { intent, confidence } = await this.detectIntent(message);
+      const { intent } = await this.detectIntent(message);
 
       if (
         intent === "set_preferences" ||
-        (message.toLowerCase().includes("looking for") &&
-          message.toLowerCase().includes("investment"))
+        message.toLowerCase().includes("looking for")
       ) {
         const preferences = await this.extractPreferences(message);
+        preferences.timestamp = new Date().toISOString();
         const userPreferencesPath = path.join(
           this.userPreferencesDir,
           `${userId}.json`
@@ -128,21 +167,39 @@ export class InvestmentAdvisor {
           JSON.stringify(preferences, null, 2)
         );
 
-        return await this.getRecommendations(userId);
+        this.storeChatHistory(userId, message, intent, preferences);
+
+        const response = await this.getRecommendations(userId);
+        this.storeChatHistory(userId, response);
+        return response;
       }
 
       if (intent === "get_recommendations") {
         const preferences = this.getUserPreferences(userId);
         if (!preferences) {
-          return "Could you tell me what kind of investments you're looking for? For example, what assets and risk level you prefer?";
+          const response =
+            "Could you tell me what kind of investments you're looking for? For example, what assets and risk level you prefer?";
+          this.storeChatHistory(userId, response);
+          return response;
         }
-        return await this.getRecommendations(userId);
+
+        this.storeChatHistory(userId, message, intent);
+
+        const response = await this.getRecommendations(userId);
+        this.storeChatHistory(userId, response);
+        return response;
       }
 
-      return "I can help you find investment opportunities. Just tell me what kind of investments you're looking for, including your preferred assets and risk tolerance.";
+      const response =
+        "I can help you find investment opportunities. Just tell me what kind of investments you're looking for, including your preferred assets and risk tolerance.";
+      this.storeChatHistory(userId, response);
+      return response;
     } catch (error) {
       console.error("Error processing message:", error);
-      return "I encountered an error while processing your request. Please try again.";
+      const errorResponse =
+        "I encountered an error while processing your request. Please try again.";
+      this.storeChatHistory(userId, errorResponse);
+      return errorResponse;
     }
   }
 
@@ -229,8 +286,41 @@ export class InvestmentAdvisor {
     return undefined;
   }
 
+  private getChatHistory(userId: string): {
+    message: string;
+    intent?: string;
+    preferences?: UserPreferences;
+    timestamp: string;
+  }[] {
+    const chatHistoryPath = path.join(this.chatHistoryDir, `${userId}.json`);
+    if (existsSync(chatHistoryPath)) {
+      const rawData = readFileSync(chatHistoryPath, "utf-8");
+      return JSON.parse(rawData);
+    }
+    return [];
+  }
+
+  private storeChatHistory(
+    userId: string,
+    message: string,
+    intent?: string,
+    preferences?: UserPreferences
+  ): void {
+    const chatHistoryPath = path.join(this.chatHistoryDir, `${userId}.json`);
+    const chatHistory = this.getChatHistory(userId);
+
+    chatHistory.push({
+      message,
+      intent,
+      preferences,
+      timestamp: new Date().toISOString(),
+    });
+
+    writeFileSync(chatHistoryPath, JSON.stringify(chatHistory, null, 2));
+  }
+
   async getRecommendations(userId: string): Promise<string> {
-    const preferences = this.getUserPreferences(userId);
+    const preferences = this.getUserPreferencesWithHistory(userId);
     if (!preferences) {
       return "Please tell me what kind of investments you're looking for first.";
     }
@@ -246,8 +336,9 @@ export class InvestmentAdvisor {
         return "I couldn't find any pools matching your criteria. Would you like to see options with slightly different parameters?";
       }
 
+      const chatHistory = this.getChatHistory(userId);
       const response = await this.chatModel.invoke([
-        new SystemMessage(`Create a concise summary of the best investment opportunities based on the user's preferences. Format:
+        new SystemMessage(`Create a concise summary of the best investment opportunities based on the user's preferences and chat history. Format:
           🎯 Top Recommendations:
           
           1. [Pool Name] ([Protocol])
@@ -262,11 +353,11 @@ export class InvestmentAdvisor {
         new HumanMessage(
           JSON.stringify({
             preferences,
+            chatHistory,
             recommendations: filteredPools.slice(0, 3),
           })
         ),
       ]);
-
       return response.content as string;
     } catch (error) {
       console.error("Error generating recommendations:", error);
