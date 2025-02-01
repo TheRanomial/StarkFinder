@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
@@ -28,13 +28,21 @@ interface Pool {
 
 export class InvestmentAdvisor {
   private static instance: InvestmentAdvisor;
-  private chatModel: ChatOpenAI;
+  private readonly chatModel: ChatOpenAI;
   private pools: Pool[] = [];
-  private userPreferences: Map<string, UserPreferences> = new Map();
+  private readonly userPreferencesDir: string;
 
   constructor() {
     this.chatModel = agent;
+    this.userPreferencesDir = path.join(__dirname, "data", "user_preferences");
     this.loadPoolData();
+    this.ensureUserPreferencesDirExists();
+  }
+
+  private ensureUserPreferencesDirExists(): void {
+    if (!existsSync(this.userPreferencesDir)) {
+      mkdirSync(this.userPreferencesDir, { recursive: true });
+    }
   }
 
   public static getInstance(): InvestmentAdvisor {
@@ -42,6 +50,100 @@ export class InvestmentAdvisor {
       InvestmentAdvisor.instance = new InvestmentAdvisor();
     }
     return InvestmentAdvisor.instance;
+  }
+
+  private async detectIntent(message: string): Promise<{
+    intent: "set_preferences" | "get_recommendations" | "other";
+    confidence: number;
+  }> {
+    const response = await this.chatModel.invoke([
+      new SystemMessage(`You are a DeFi investment assistant. Analyze the message and determine if the user is:
+        1. Setting investment preferences mentioning risk levels, assets, chains, or investment criteria
+        2. Requesting recommendations asking about available pools or opportunities
+        3. Something else
+        
+        Return JSON with format:
+        {
+          "intent": "set_preferences|get_recommendations|other",
+          "confidence": number between 0 and 1
+        }
+        
+        Example messages that indicate setting preferences:
+        - "I am looking for low-risk investments in ETH and USDC"
+        - "I want to invest in Ethereum with minimal risk"
+        - "Show me safe options for BTC pools"
+        `),
+      new HumanMessage(message),
+    ]);
+
+    const cleanJson = response.content
+      .toString()
+      .replace(/```json\s*|\s*```/g, "");
+    return JSON.parse(cleanJson);
+  }
+
+  private async extractPreferences(message: string): Promise<UserPreferences> {
+    const response = await this.chatModel.invoke([
+      new SystemMessage(`Extract investment preferences from the message. If a preference isn't specified, make a reasonable assumption based on the user's risk tolerance. Return JSON with format:
+        {
+          "riskTolerance": "low|medium|high",
+          "preferredAssets": ["asset1", "asset2"],
+          "preferredChains": ["chain1", "chain2"],
+          "investmentHorizon": "short|medium|long",
+          "minTVL": number,
+          "targetAPY": number
+        }
+        
+        Rules:
+        - If user mentions "safe" or "low-risk", set riskTolerance to "low"
+        - If TVL isn't specified, set minTVL to 1000000 for low risk
+        - If horizon isn't specified, assume "long" for low risk
+        - Set reasonable targetAPY based on risk tolerance
+        `),
+      new HumanMessage(message),
+    ]);
+
+    const cleanJson = response.content
+      .toString()
+      .replace(/```json\s*|\s*```/g, "");
+    return JSON.parse(cleanJson);
+  }
+
+  async processMessage(userId: string, message: string): Promise<string> {
+    try {
+      const { intent, confidence } = await this.detectIntent(message);
+
+      if (
+        intent === "set_preferences" ||
+        (message.toLowerCase().includes("looking for") &&
+          message.toLowerCase().includes("investment"))
+      ) {
+        const preferences = await this.extractPreferences(message);
+        const userPreferencesPath = path.join(
+          this.userPreferencesDir,
+          `${userId}.json`
+        );
+        writeFileSync(
+          userPreferencesPath,
+          JSON.stringify(preferences, null, 2)
+        );
+
+        return await this.getRecommendations(userId);
+      }
+
+      if (intent === "get_recommendations") {
+        const preferences = this.getUserPreferences(userId);
+        if (!preferences) {
+          return "Could you tell me what kind of investments you're looking for? For example, what assets and risk level you prefer?";
+        }
+        return await this.getRecommendations(userId);
+      }
+
+      return "I can help you find investment opportunities. Just tell me what kind of investments you're looking for, including your preferred assets and risk tolerance.";
+    } catch (error) {
+      console.error("Error processing message:", error);
+      return "I encountered an error while processing your request. Please try again.";
+    }
   }
 
   private loadPoolData(): void {
@@ -77,40 +179,6 @@ export class InvestmentAdvisor {
     } catch (error) {
       console.error("Error loading pool data:", error);
       this.pools = [];
-    }
-  }
-
-  private ensureValidPools(): void {
-    if (!Array.isArray(this.pools)) {
-      console.error("Pools is not an array, resetting to empty array");
-      this.pools = [];
-    }
-  }
-
-  async setUserPreferences(userId: string, message: string): Promise<string> {
-    try {
-      const response = await this.chatModel.invoke([
-        new SystemMessage(
-          `Extract investment preferences from user message. Return JSON with format:
-                {
-                  "riskTolerance": "low|medium|high",
-                  "preferredAssets": ["asset1", "asset2"],
-                  "preferredChains": ["chain1", "chain2"],
-                  "investmentHorizon": "short|medium|long",
-                  "minTVL": number,
-                  "targetAPY": number
-                }`
-        ),
-        new HumanMessage(message),
-      ]);
-
-      const preferences = JSON.parse(response.content as string);
-      this.userPreferences.set(userId, preferences);
-
-      return "✅ I've updated your investment preferences. Would you like to see some recommendations based on these preferences?";
-    } catch (error) {
-      console.error("Error setting user preferences:", error);
-      return "❌ I couldn't process your preferences. Please try again with clearer specifications.";
     }
   }
 
@@ -150,36 +218,51 @@ export class InvestmentAdvisor {
   }
 
   public getUserPreferences(userId: string): UserPreferences | undefined {
-    return this.userPreferences.get(userId);
+    const userPreferencesPath = path.join(
+      this.userPreferencesDir,
+      `${userId}.json`
+    );
+    if (existsSync(userPreferencesPath)) {
+      const rawData = readFileSync(userPreferencesPath, "utf-8");
+      return JSON.parse(rawData);
+    }
+    return undefined;
   }
 
   async getRecommendations(userId: string): Promise<string> {
-    const preferences = this.userPreferences.get(userId);
+    const preferences = this.getUserPreferences(userId);
     if (!preferences) {
-      return "❌ Please set your investment preferences first using /setpreferences.";
+      return "Please tell me what kind of investments you're looking for first.";
     }
 
     try {
-      this.ensureValidPools();
-
       if (this.pools.length === 0) {
-        return "❌ No pool data available. Please try again later.";
+        return "No pool data available. Please try again later.";
       }
 
       const filteredPools = this.filterPoolsByPreferences(preferences);
 
       if (filteredPools.length === 0) {
-        return "❌ No pools found matching your preferences. Try adjusting your criteria.";
+        return "I couldn't find any pools matching your criteria. Would you like to see options with slightly different parameters?";
       }
 
       const response = await this.chatModel.invoke([
-        new SystemMessage(
-          "Generate personalized investment recommendations based on the user's preferences and filtered pools. Include pros and cons for each recommendation."
-        ),
+        new SystemMessage(`Create a concise summary of the best investment opportunities based on the user's preferences. Format:
+          🎯 Top Recommendations:
+          
+          1. [Pool Name] ([Protocol])
+             • APY: X%
+             • Risk Level: [Low/Medium/High]
+             • Assets: [Assets]
+             • TVL: $[Amount]
+             
+          [Add 2-3 more recommendations]
+          
+          💡 These options match your preferences for [summarize preferences]`),
         new HumanMessage(
           JSON.stringify({
             preferences,
-            recommendations: filteredPools,
+            recommendations: filteredPools.slice(0, 3),
           })
         ),
       ]);
@@ -187,7 +270,7 @@ export class InvestmentAdvisor {
       return response.content as string;
     } catch (error) {
       console.error("Error generating recommendations:", error);
-      return "❌ Error generating recommendations. Please try again later.";
+      return "Sorry, I had trouble generating recommendations. Please try again.";
     }
   }
 }

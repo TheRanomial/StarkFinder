@@ -627,55 +627,13 @@ Received a message from chat:
     const telegramChatId = ctx.chat.id.toString();
     ctx.session.lastActivity = Date.now();
 
-    // Store user message
     await chatHistoryManager.storeMessage(
       telegramChatId,
       [{ role: "user", content: messageText }],
       "user"
     );
 
-    // Get chat history for context
-    const chatHistory = await chatHistoryManager.getChatHistory(telegramChatId);
-
-    if (messageText.toLowerCase().includes("setpreferences")) {
-      const fullText = ctx.message?.text || "";
-      const preferencesText = fullText
-        .replace(/^\/setpreferences\s*/, "")
-        .trim();
-
-      if (!preferencesText) {
-        return ctx.reply(`Please provide your investment preferences. Example:
-        I prefer low risk investments in ETH and BTC on Starknet with minimum 5% APY and $100k TVL. I'm looking for long-term investments.`);
-      }
-
-      const advisor = InvestmentAdvisor.getInstance();
-      console.log("Processing preferences for user:", ctx.from.id);
-      console.log("Preferences text:", preferencesText);
-
-      const response = await advisor.setUserPreferences(
-        ctx.from.id.toString(),
-        preferencesText
-      );
-      console.log("Preference setting response:", response);
-      await ctx.reply(response, { parse_mode: "Markdown" });
-    } else if (messageText.toLowerCase().includes("recommend")) {
-      const userId = ctx.from.id.toString();
-      console.log(`Getting recommendations for user: ${userId}`);
-      const advisor = InvestmentAdvisor.getInstance();
-      const preferences = advisor.getUserPreferences(userId);
-
-      if (!preferences) {
-        return ctx.reply(`❌ Please set your investment preferences first using the /setpreferences command. 
-        Example: /setpreferences I'm looking for low-risk investments in ETH and USDT on Starknet with minimum 5% APY and TVL of $100K. I prefer long-term investments.`);
-      }
-
-      console.log(`Found preferences for user ${userId}:`, preferences);
-      const recommendations = await advisor.getRecommendations(userId);
-      const formattedRecommendations = `🎯 *Your Investment Recommendations*\n\n${recommendations}`;
-      await ctx.reply(formattedRecommendations, {
-        parse_mode: "Markdown",
-      });
-    } else if (
+    if (
       messageText.toLowerCase().includes("swap") ||
       messageText.toLowerCase().includes("transfer") ||
       messageText.toLowerCase().includes("send")
@@ -683,10 +641,20 @@ Received a message from chat:
       await processTransactionRequest(ctx, messageText);
       return;
     } else {
-      const response = await queryBrianAI(messageText, telegramChatId);
-      const formattedResponse = await formatResponse(response);
-      console.log(`[SUCCESS] Replied for chat ID by brian: ${telegramChatId}`);
-      return ctx.reply(formattedResponse, { parse_mode: "Markdown" });
+      const advisor = InvestmentAdvisor.getInstance();
+      const response = await advisor.processMessage(
+        telegramChatId,
+        messageText
+      );
+
+      if (response) {
+        await ctx.reply(response, { parse_mode: "Markdown" });
+      } else {
+        const response = await queryBrianAI(messageText, telegramChatId);
+        const formattedResponse = await formatResponse(response);
+        console.log(`[SUCCESS] Replied for chat ID: ${telegramChatId}`);
+        return ctx.reply(formattedResponse, { parse_mode: "Markdown" });
+      }
     }
   } catch (error) {
     console.error("Message handling error:", error);
