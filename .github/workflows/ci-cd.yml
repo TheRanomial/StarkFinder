@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   check-contracts:
@@ -16,17 +16,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
       - name: Install Scarb
         run: curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh
 
       - name: Add Scarb to PATH
         run: echo "${HOME}/.local/share/scarb/bin" >> $GITHUB_PATH
 
+      - name: Install snforge
+        run: cargo install --git https://github.com/foundry-rs/starknet-foundry snforge
+
       - name: Build Starknet contracts
         run: scarb build
 
       - name: Run Scarb tests (if any)
         run: scarb test
+
+      - name: Run snforge tests
+        run: snforge test --verbose
 
   nextjs-build-and-test:
     runs-on: ubuntu-latest
@@ -40,9 +49,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: './client/package-lock.json'
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "./client/package-lock.json"
 
       - name: Install dependencies
         run: npm ci
@@ -52,7 +61,7 @@ jobs:
 
       - name: Build
         run: npm run build
-        env:  # Proper indentation here
+        env: # Proper indentation here
           NEXT_PUBLIC_API_URL: ${{ github.event_name == 'pull_request' && 'dummy-api-url' || secrets.NEXT_PUBLIC_API_URL }}
           OPENAI_API_KEY: ${{ github.event_name == 'pull_request' && 'dummy-key' || secrets.OPENAI_API_KEY }}
           BRIAN_API_KEY: ${{ github.event_name == 'pull_request' && 'dummy-key' || secrets.BRIAN_API_KEY }}
@@ -81,9 +90,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: './client/package-lock.json'
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "./client/package-lock.json"
 
       - name: Install dependencies
         run: npm ci
