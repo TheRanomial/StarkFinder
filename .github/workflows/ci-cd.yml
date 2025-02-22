@@ -23,8 +23,8 @@ jobs:
       - name: Add Scarb to PATH
         run: echo "${HOME}/.local/share/scarb/bin" >> $GITHUB_PATH
 
-      - name: Install snforge
-        run: cargo install --git https://github.com/foundry-rs/starknet-foundry snforge
+      - name: Setup Starknet Foundry
+        uses: foundry-rs/setup-snfoundry@v4
 
       - name: Build Starknet contracts
         run: scarb build
